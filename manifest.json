@@ -1,10 +1,10 @@
 {
-  "id": "obsidian-local-images",
-  "name": "Local images",
-  "version": "0.14.2",
+  "id": "obsidian-images-store",
+  "name": "Images store",
+  "version": "0.1.0",
   "minAppVersion": "0.12.15",
   "description": "Local Images plugin finds all links to external images in your notes, then downloads and saves images locally, and finally adjusts the image links in your notes to point to the saved image files.",
-  "author": "catalysm, aleksey-rezvov",
-  "authorUrl": "https://github.com/aleksey-rezvov/obsidian-local-images",
+  "author": "bagaking",
+  "authorUrl": "https://github.com/bagaking/obsidian-images-store",
   "isDesktopOnly": true
 }

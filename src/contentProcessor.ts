@@ -1,23 +1,35 @@
 import { URL } from "url";
 import path from "path";
 
-import { App, DataAdapter } from "obsidian";
+import { App, DataAdapter, TFile, TFolder, Vault } from "obsidian";
 
 import {
   isUrl,
   downloadImage,
   fileExtByContent,
   cleanFileName,
-  pathJoin,
+  pathJoin
 } from "./utils";
 import {
   FILENAME_TEMPLATE,
   MAX_FILENAME_INDEX,
-  FILENAME_ATTEMPTS,
+  FILENAME_ATTEMPTS
 } from "./config";
 import { linkHashes } from "./linksHash";
+import { renderTemplate } from "./template";
+import { debuglog } from "util";
 
-export function imageTagProcessor(app: App, mediaDir: string) {
+export function imageTagProcessor(app: App, mediaDir: string, namePattern: string, file: TFile) {
+  const refFile = {
+    basename: file.basename,
+    stat: file.stat,
+    extension: file.extension,
+    vault: file.vault,
+    path: file.path,
+    name: file.name,
+    parent: file.parent,
+  };
+
   async function processImageTag(match: string, anchor: string, link: string) {
     if (!isUrl(link)) {
       return match;
@@ -35,12 +47,15 @@ export function imageTagProcessor(app: App, mediaDir: string) {
             app.vault.adapter,
             mediaDir,
             anchor,
+            namePattern,
+            refFile,
             link,
             fileData
           );
 
           if (needWrite && fileName) {
             await app.vault.createBinary(fileName, fileData);
+            console.log(`binary created ${fileName}`)
           }
 
           if (fileName) {
@@ -69,7 +84,9 @@ export function imageTagProcessor(app: App, mediaDir: string) {
 async function chooseFileName(
   adapter: DataAdapter,
   dir: string,
-  baseName: string,
+  anchor: string,
+  namePattern: string,
+  refFile: TFile,
   link: string,
   contentData: ArrayBuffer
 ): Promise<{ fileName: string; needWrite: boolean }> {
@@ -78,9 +95,14 @@ async function chooseFileName(
     return { fileName: "", needWrite: false };
   }
   // if there is no anchor try get file name from url
+
+  let baseName = renderTemplate(namePattern, {
+    anchor, file: refFile
+  });
+
+  // if there is no anchor try get file name from url
   if (!baseName) {
     const parsedUrl = new URL(link);
-
     baseName = path.basename(parsedUrl.pathname);
   }
   // if there is no part for file name from url use name template

@@ -4,19 +4,19 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
-  TFile,
+  TFile
 } from "obsidian";
 import safeRegex from "safe-regex";
 
 import { imageTagProcessor } from "./contentProcessor";
-import { replaceAsync, cleanContent } from "./utils";
+import { replaceAsync, cleanContent, pathJoin } from "./utils";
 import {
   ISettings,
   DEFAULT_SETTINGS,
-  EXTERNAL_MEDIA_LINK_PATTERN,
+  EXTERNAL_MEDIA_ASSET_LINK_PATTERN,
   ANY_URL_PATTERN,
   NOTICE_TIMEOUT,
-  TIMEOUT_LIKE_INFINITY,
+  TIMEOUT_LIKE_INFINITY
 } from "./config";
 import { UniqueQueue } from "./uniqueQueue";
 
@@ -25,19 +25,24 @@ export default class LocalImagesPlugin extends Plugin {
   modifiedQueue = new UniqueQueue<TFile>();
   intervalId: number = null;
 
-  private async proccessPage(file: TFile, silent = false) {
+  private async processPage(file: TFile, silent = false) {
     // const content = await this.app.vault.read(file);
     const content = await this.app.vault.cachedRead(file);
 
-    await this.ensureFolderExists(this.settings.mediaRootDirectory);
+    let storeDir = this.settings.assetDir;
+    if (this.settings.createFileDir) {
+      storeDir = pathJoin(storeDir, file.basename + ".assets");
+    }
+
+    await this.ensureFolderExists(storeDir);
 
     const cleanedContent = this.settings.cleanContent
       ? cleanContent(content)
       : content;
     const fixedContent = await replaceAsync(
       cleanedContent,
-      EXTERNAL_MEDIA_LINK_PATTERN,
-      imageTagProcessor(this.app, this.settings.mediaRootDirectory)
+      EXTERNAL_MEDIA_ASSET_LINK_PATTERN,
+      imageTagProcessor(this.app, storeDir, this.settings.namePattern, file)
     );
 
     if (content != fixedContent) {
@@ -59,7 +64,7 @@ export default class LocalImagesPlugin extends Plugin {
   // using arrow syntax for callbacks to correctly pass this context
   processActivePage = async () => {
     const activeFile = this.app.workspace.getActiveFile();
-    await this.proccessPage(activeFile);
+    await this.processPage(activeFile);
   };
 
   processAllPages = async () => {
@@ -70,9 +75,9 @@ export default class LocalImagesPlugin extends Plugin {
 
     const notice = this.settings.showNotifications
       ? new Notice(
-          `Local Images \nStart processing. Total ${pagesCount} pages. `,
-          TIMEOUT_LIKE_INFINITY
-        )
+        `Local Images \nStart processing. Total ${pagesCount} pages. `,
+        TIMEOUT_LIKE_INFINITY
+      )
       : null;
 
     for (const [index, file] of files.entries()) {
@@ -84,7 +89,7 @@ export default class LocalImagesPlugin extends Plugin {
             `Local Images: Processing \n"${file.path}" \nPage ${index} of ${pagesCount}`
           );
         }
-        await this.proccessPage(file, true);
+        await this.processPage(file, true);
       }
     }
     if (notice) {
@@ -103,13 +108,13 @@ export default class LocalImagesPlugin extends Plugin {
     this.addCommand({
       id: "download-images",
       name: "Download images locally",
-      callback: this.processActivePage,
+      callback: this.processActivePage
     });
 
     this.addCommand({
       id: "download-images-all",
       name: "Download images locally for all your notes",
-      callback: this.processAllPages,
+      callback: this.processAllPages
     });
 
     this.registerCodeMirror((cm: CodeMirror.Editor) => {
@@ -150,7 +155,7 @@ export default class LocalImagesPlugin extends Plugin {
   processModifiedQueue = async () => {
     const iteration = this.modifiedQueue.iterationQueue();
     for (const page of iteration) {
-      this.proccessPage(page);
+      this.processPage(page);
     }
   };
 
@@ -161,6 +166,7 @@ export default class LocalImagesPlugin extends Plugin {
       this.settings.realTimeAttemptsToProcess
     );
   }
+
   // It is good idea to create the plugin more verbose
   displayError(error: Error | string, file?: TFile): void {
     if (file) {
@@ -176,7 +182,8 @@ export default class LocalImagesPlugin extends Plugin {
     console.error(`LocalImages: error: ${error}`);
   }
 
-  onunload() {}
+  onunload() {
+  }
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -212,10 +219,9 @@ class SettingTab extends PluginSettingTab {
 
   display(): void {
     let { containerEl } = this;
-
     containerEl.empty();
-
     containerEl.createEl("h2", { text: "Local images" });
+
 
     new Setting(containerEl)
       .setName("On paste processing")
@@ -329,15 +335,55 @@ class SettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Media folder")
+      .setName("Storage folder")
       .setDesc("Folder to keep all downloaded media files.")
       .addText((text) =>
         text
-          .setValue(this.plugin.settings.mediaRootDirectory)
+          .setValue(this.plugin.settings.assetDir)
           .onChange(async (value) => {
-            this.plugin.settings.mediaRootDirectory = value;
+            this.plugin.settings.assetDir = value;
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(containerEl)
+      .setName("Create File Dir")
+      .setDesc(`Create a Dir under the assetsDir to store images.
+e.g. when AssetDir = "foo", Filename == "bar", the image will be saved at path foo/bar.assets/image_full_name
+      `)
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.createFileDir)
+          .onChange(async (value) => {
+            this.plugin.settings.createFileDir = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Name Pattern")
+      .setDesc(`The pattern indicates how the new name should be generated.
+Available variables:
+- {{Anchor}}: this variable is read from the markdown image's anchor, e.g. ![anchor](#) .
+- {{FileName}}: name of the active file, without ".md" extension.
+- {{DirName}}: name of the active file's parent folder name.
+- {{DATE:$FORMAT}}: use "$FORMAT" to format the current date, "$FORMAT" must be a Moment.js format string, e.g. {{DATE:-YYYY-MM-DD}}. See [moment.js](https://momentjs.com/docs/#/displaying/format/)\`)
+ 
+Here are some examples from pattern to image names (repeat in sequence), for image link ![tony](#), DirName="foo", fileName = "bar":
+- {{DirName}}: foo, foo-1, foo-2
+- {{FileName}}: bar, bar-1, bar-2
+- {{Anchor}}: tony, tony-1, tony-2
+- {{DirName}}_{{FileName}}_{{Anchor}}{{DATE:-YYYYMMDD}}: foo_bar_tony-20220508, foo_bar_tony-20220508-1, foo_bar_tony-20220508-2`
+      ).addText((text) =>
+        text
+          .setValue(this.plugin.settings.namePattern)
+          .onChange(async (value) => {
+            this.plugin.settings.namePattern = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
   }
 }
+
+
