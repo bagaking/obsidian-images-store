@@ -1,27 +1,26 @@
 import {
+  addIcon,
   App,
   Notice,
-  Plugin,
-  PluginSettingTab,
-  Setting,
+  Plugin, PluginSettingTab, Setting,
   TFile
 } from "obsidian";
-import safeRegex from "safe-regex";
 
 import { imageTagProcessor } from "./contentProcessor";
 import { replaceAsync, cleanContent, pathJoin } from "./utils";
 import {
-  ISettings,
-  DEFAULT_SETTINGS,
+  IConfig,
+  DEFAULT_CONF,
   EXTERNAL_MEDIA_ASSET_LINK_PATTERN,
   ANY_URL_PATTERN,
   NOTICE_TIMEOUT,
   TIMEOUT_LIKE_INFINITY
 } from "./config";
 import { UniqueQueue } from "./uniqueQueue";
+import safeRegex from "safe-regex";
 
 export default class LocalImagesPlugin extends Plugin {
-  settings: ISettings;
+  settings: IConfig;
   modifiedQueue = new UniqueQueue<TFile>();
   intervalId: number = null;
 
@@ -117,6 +116,21 @@ export default class LocalImagesPlugin extends Plugin {
       callback: this.processAllPages
     });
 
+    addIcon("image_store", `<g>
+  <title>Layer 1</title>
+  <path stroke="null" id="svg_1" d="m27.83212,75.81482a3.97251,3.97251 0 0 0 5.61978,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87453,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32417,-1.32417l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32417l-0.01192,20.40284l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
+  <path stroke="null" id="svg_2" d="m86.18181,63.72727l0,0a3.27273,3.27273 0 0 0 -3.27273,3.27273l0,13.09091a3.27273,3.27273 0 0 1 -3.27273,3.27273l-58.90909,0a3.27273,3.27273 0 0 1 -3.27273,-3.27273l0,-13.09091a3.27273,3.27273 0 0 0 -3.27273,-3.27273l0,0a3.27273,3.27273 0 0 0 -3.27273,3.27273l0,13.09091a9.81818,9.81818 0 0 0 9.81818,9.81818l58.90909,0a9.81818,9.81818 0 0 0 9.81818,-9.81818l0,-13.09091a3.27273,3.27273 0 0 0 -3.27273,-3.27273z"/>
+  <rect stroke="null" rx="8" id="svg_4" height="34.64646" width="44.54545" y="12.72727" x="27.27272"/>
+  <path stroke="null" id="svg_6" d="m47.37758,75.81482a3.97251,3.97251 0 0 0 5.61979,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87452,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32418,-1.32418l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32418l-0.01191,20.40283l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
+  <path stroke="null" id="svg_7" d="m27.83212,75.81482a3.97251,3.97251 0 0 0 5.61979,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87452,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32418,-1.32418l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32418l-0.01191,20.40283l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
+  <path stroke="null" id="svg_8" d="m66.46848,75.81482a3.97251,3.97251 0 0 0 5.61979,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87452,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32418,-1.32418l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32418l-0.01191,20.40283l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
+ </g>`)
+
+    const ribbonIconEl = this.addRibbonIcon('image_store', 'Store Images', (evt: MouseEvent) => {
+      // Called when the user clicks the icon.
+      this.processActivePage()
+    });
+
     this.registerCodeMirror((cm: CodeMirror.Editor) => {
       // on("beforeChange") can not execute async function in event handler, so we use queue to pass modified pages to timeouted handler
       cm.on("change", async (instance: CodeMirror.Editor, changeObj: any) => {
@@ -182,11 +196,19 @@ export default class LocalImagesPlugin extends Plugin {
     console.error(`LocalImages: error: ${error}`);
   }
 
-  onunload() {
+
+  async ensureFolderExists(folderPath: string) {
+    try {
+      await this.app.vault.createFolder(folderPath);
+    } catch (error) {
+      if (!error.message.contains("Folder already exists")) {
+        throw error;
+      }
+    }
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_CONF, await this.loadData());
     this.setupQueueInterval();
   }
 
@@ -198,14 +220,8 @@ export default class LocalImagesPlugin extends Plugin {
     }
   }
 
-  async ensureFolderExists(folderPath: string) {
-    try {
-      await this.app.vault.createFolder(folderPath);
-    } catch (error) {
-      if (!error.message.contains("Folder already exists")) {
-        throw error;
-      }
-    }
+
+  onunload() {
   }
 }
 
@@ -375,15 +391,16 @@ Here are some examples from pattern to image names (repeat in sequence), for ima
 - {{Anchor}}: tony, tony-1, tony-2
 - {{DirName}}_{{FileName}}_{{Anchor}}{{DATE:-YYYYMMDD}}: foo_bar_tony-20220508, foo_bar_tony-20220508-1, foo_bar_tony-20220508-2`
       ).addText((text) =>
-        text
-          .setValue(this.plugin.settings.namePattern)
-          .onChange(async (value) => {
-            this.plugin.settings.namePattern = value;
-            await this.plugin.saveSettings();
-          })
-      );
+      text
+        .setValue(this.plugin.settings.namePattern)
+        .onChange(async (value) => {
+          this.plugin.settings.namePattern = value;
+          await this.plugin.saveSettings();
+        })
+    );
+
+
 
   }
 }
-
 

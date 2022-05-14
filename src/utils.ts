@@ -4,7 +4,7 @@ import { fromBuffer } from "file-type";
 import isSvg from "is-svg";
 import filenamify from "filenamify";
 
-import { DIRTY_IMAGE_TAG, FORBIDDEN_SYMBOLS_FILENAME_PATTERN } from "./config";
+import { DIRTY_IMAGE_TAG, REGEX_FORBIDDEN_FILENAME_SYMBOLS } from "./config";
 /*
 https://stackoverflow.com/a/48032528/1020973
 It will be better to do it type-correct.
@@ -55,10 +55,12 @@ export function cleanContent(content: string) {
 }
 
 export function cleanFileName(name: string) {
+  // filenamify contains rule : /[\\\/<>?:*\"|]+/g
   const cleanedName = filenamify(name).replace(
-    FORBIDDEN_SYMBOLS_FILENAME_PATTERN,
+    REGEX_FORBIDDEN_FILENAME_SYMBOLS,
     "_"
   );
+  console.log(`file name cleaned, input= ${name}, output= ${cleanedName}`)
   return cleanedName;
 }
 

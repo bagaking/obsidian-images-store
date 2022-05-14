@@ -17,8 +17,9 @@ export const NOTICE_TIMEOUT = 10 * 1000;
 
 export const TIMEOUT_LIKE_INFINITY = 24 * 60 * 60 * 1000;
 
-export const FORBIDDEN_SYMBOLS_FILENAME_PATTERN = /\s+/g;
-export interface ISettings {
+export const REGEX_FORBIDDEN_FILENAME_SYMBOLS = /[\s]+/g;
+
+export interface IConfig {
   realTimeUpdate: boolean;
   realTimeUpdateInterval: number;
   realTimeAttemptsToProcess: number;
@@ -30,7 +31,7 @@ export interface ISettings {
   namePattern: string
 }
 
-export const DEFAULT_SETTINGS: ISettings = {
+export const DEFAULT_CONF: IConfig = {
   realTimeUpdate: false,
   realTimeUpdateInterval: 1000,
   realTimeAttemptsToProcess: 3,

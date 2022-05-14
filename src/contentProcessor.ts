@@ -95,7 +95,6 @@ async function chooseFileName(
     return { fileName: "", needWrite: false };
   }
   // if there is no anchor try get file name from url
-
   let baseName = renderTemplate(namePattern, {
     anchor, file: refFile
   });
