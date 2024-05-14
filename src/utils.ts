@@ -20,6 +20,10 @@ export async function replaceAsync(str: any, regex: any, asyncFn: any) {
   return str.replace(regex, () => data.shift());
 }
 
+export function replaceSync(str: any, regex: any, syncFn: any) {
+  return str.replace(regex, syncFn);
+}
+
 export function isUrl(link: string) {
   try {
     return Boolean(new URL(link));

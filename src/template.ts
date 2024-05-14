@@ -2,6 +2,7 @@
 //
 import { IFileInfo } from "strtok3";
 import { TFile } from "obsidian";
+import { cleanFileName } from "./utils";
 
 const dateTmplRegex = /{{DATE:(.+)}}/gm
 
@@ -25,8 +26,8 @@ export const renderTemplate = (tmpl: string, data: TemplateData) => {
   }
 
   text = text
-    .replace(/{{Anchor}}/gm, data.anchor)
-    .replace(/{{FileName}}/gm, data.file.basename)
-    .replace(/{{DirName}}/gm, data.file.parent.name)
+    .replace(/{{Anchor}}/gm, cleanFileName(data.anchor))
+    .replace(/{{FileName}}/gm, cleanFileName(data.file.basename))
+    .replace(/{{DirName}}/gm, cleanFileName(data.file.parent.name))
   return text
 }

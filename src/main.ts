@@ -3,26 +3,54 @@ import {
   App,
   Notice,
   Plugin, PluginSettingTab, Setting,
-  TFile
+  TFile, Vault, WorkspaceLeaf
 } from "obsidian";
 
-import { imageTagProcessor } from "./contentProcessor";
-import { replaceAsync, cleanContent, pathJoin } from "./utils";
+import {
+  headerBreathProc,
+  imageTagProcessor, quoteBreathProc,
+  quoteListProc,
+  redundantBlankProc,
+  RegexProcessor,
+  titleProc
+} from "./contentProcessor";
+import { replaceAsync, cleanContent, pathJoin, cleanFileName } from "./utils";
 import {
   IConfig,
   DEFAULT_CONF,
   EXTERNAL_MEDIA_ASSET_LINK_PATTERN,
   ANY_URL_PATTERN,
   NOTICE_TIMEOUT,
-  TIMEOUT_LIKE_INFINITY
+  TIMEOUT_LIKE_INFINITY, VIEW_TYPE, ICON_NAME
 } from "./config";
 import { UniqueQueue } from "./uniqueQueue";
 import safeRegex from "safe-regex";
+import ImageStoreView from "./panel";
 
 export default class LocalImagesPlugin extends Plugin {
   settings: IConfig;
   modifiedQueue = new UniqueQueue<TFile>();
   intervalId: number = null;
+  view: ImageStoreView;
+
+  private async tidyMarkdown(file: TFile, silent = false) {
+    let syncContent = await this.app.vault.cachedRead(file);
+    const showNotification = !silent && this.settings.showNotifications;
+    let map: any = {};
+    const doSync = function(v: string, proc: RegexProcessor): string {
+      let newContent = proc.DoSync(v);
+      map[proc.name] = v != newContent;
+      return newContent;
+    };
+    await this.app.vault.modify(file, [quoteListProc, titleProc, redundantBlankProc, headerBreathProc, quoteBreathProc].reduce(doSync, syncContent));
+    if (showNotification) {
+      let str = `Process result of ${file.path}\n\n`;
+      for (let key in map) {
+        str += `${key} ${map[key] ? "√" : "X"}\n`;
+      }
+      new Notice(str);
+    }
+  }
 
   private async processPage(file: TFile, silent = false) {
     // const content = await this.app.vault.read(file);
@@ -30,15 +58,16 @@ export default class LocalImagesPlugin extends Plugin {
 
     let storeDir = this.settings.assetDir;
     if (this.settings.createFileDir) {
-      storeDir = pathJoin(storeDir, file.basename + ".assets");
+      storeDir = pathJoin(storeDir, cleanFileName(file.basename + ".assets"));
     }
 
-    await this.ensureFolderExists(storeDir);
+
 
     const cleanedContent = this.settings.cleanContent
       ? cleanContent(content)
       : content;
-    const fixedContent = await replaceAsync(
+
+    let fixedContent = await replaceAsync(
       cleanedContent,
       EXTERNAL_MEDIA_ASSET_LINK_PATTERN,
       imageTagProcessor(this.app, storeDir, this.settings.namePattern, file)
@@ -61,7 +90,7 @@ export default class LocalImagesPlugin extends Plugin {
   }
 
   // using arrow syntax for callbacks to correctly pass this context
-  processActivePage = async () => {
+  storeImageForActivePage = async () => {
     const activeFile = this.app.workspace.getActiveFile();
     await this.processPage(activeFile);
   };
@@ -83,7 +112,7 @@ export default class LocalImagesPlugin extends Plugin {
       if (file.path.match(includeRegex)) {
         if (notice) {
           // setMessage() is undeclared but factically existing, so ignore the TS error
-          // @ts-expect-error
+
           notice.setMessage(
             `Local Images: Processing \n"${file.path}" \nPage ${index} of ${pagesCount}`
           );
@@ -92,7 +121,7 @@ export default class LocalImagesPlugin extends Plugin {
       }
     }
     if (notice) {
-      // @ts-expect-error
+
       notice.setMessage(`Local Images: ${pagesCount} pages were processed.`);
 
       setTimeout(() => {
@@ -105,9 +134,28 @@ export default class LocalImagesPlugin extends Plugin {
     await this.loadSettings();
 
     this.addCommand({
+      id: "image-store-process-experts",
+      name: "Tidy Experts",
+      callback: async () => {
+        const activeFile = this.app.workspace.getActiveFile();
+        await this.tidyMarkdown(activeFile);
+        await this.storeImageForActivePage();
+      }
+    });
+
+    this.addCommand({
+      id: "image-store-tidy-md",
+      name: "Tidy Markdown",
+      callback: async () => {
+        const activeFile = this.app.workspace.getActiveFile();
+        await this.tidyMarkdown(activeFile);
+      }
+    });
+
+    this.addCommand({
       id: "download-images",
       name: "Download images locally",
-      callback: this.processActivePage
+      callback: this.storeImageForActivePage
     });
 
     this.addCommand({
@@ -116,7 +164,14 @@ export default class LocalImagesPlugin extends Plugin {
       callback: this.processAllPages
     });
 
-    addIcon("image_store", `<g>
+    this.addCommand({
+      id: "app:show-image-store-panel",
+      name: "Show the Image Store Panel",
+      callback: () => this.initLeaf(),
+      hotkeys: []
+    });
+
+    addIcon(ICON_NAME, `<g>
   <title>Layer 1</title>
   <path stroke="null" id="svg_1" d="m27.83212,75.81482a3.97251,3.97251 0 0 0 5.61978,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87453,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32417,-1.32417l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32417l-0.01192,20.40284l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
   <path stroke="null" id="svg_2" d="m86.18181,63.72727l0,0a3.27273,3.27273 0 0 0 -3.27273,3.27273l0,13.09091a3.27273,3.27273 0 0 1 -3.27273,3.27273l-58.90909,0a3.27273,3.27273 0 0 1 -3.27273,-3.27273l0,-13.09091a3.27273,3.27273 0 0 0 -3.27273,-3.27273l0,0a3.27273,3.27273 0 0 0 -3.27273,3.27273l0,13.09091a9.81818,9.81818 0 0 0 9.81818,9.81818l58.90909,0a9.81818,9.81818 0 0 0 9.81818,-9.81818l0,-13.09091a3.27273,3.27273 0 0 0 -3.27273,-3.27273z"/>
@@ -124,11 +179,12 @@ export default class LocalImagesPlugin extends Plugin {
   <path stroke="null" id="svg_6" d="m47.37758,75.81482a3.97251,3.97251 0 0 0 5.61979,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87452,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32418,-1.32418l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32418l-0.01191,20.40283l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
   <path stroke="null" id="svg_7" d="m27.83212,75.81482a3.97251,3.97251 0 0 0 5.61979,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87452,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32418,-1.32418l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32418l-0.01191,20.40283l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
   <path stroke="null" id="svg_8" d="m66.46848,75.81482a3.97251,3.97251 0 0 0 5.61979,0l4.25191,-4.25191a1.32417,1.32417 0 0 0 -1.87238,-1.86841l-3.87452,3.87585l0.00927,-20.42799a1.32417,1.32417 0 0 0 -1.32418,-1.32418l0,0a1.32417,1.32417 0 0 0 -1.32417,1.32418l-0.01191,20.40283l-3.85334,-3.85069a1.32417,1.32417 0 0 0 -1.87238,1.8737l4.25191,4.24662z"/>
- </g>`)
+ </g>`);
 
-    const ribbonIconEl = this.addRibbonIcon('image_store', 'Store Images', (evt: MouseEvent) => {
+    const ribbonIconEl = this.addRibbonIcon("image_store", "Store Images", (evt: MouseEvent) => {
       // Called when the user clicks the icon.
-      this.processActivePage()
+
+      this.storeImageForActivePage();
     });
 
     this.registerCodeMirror((cm: CodeMirror.Editor) => {
@@ -143,9 +199,28 @@ export default class LocalImagesPlugin extends Plugin {
       });
     });
 
+    this.setupPanelInterval();
     this.setupQueueInterval();
 
     this.addSettingTab(new SettingTab(this.app, this));
+
+    this.registerView(
+      VIEW_TYPE, // 全局唯一常量，用于做 View 的唯一性
+      (leaf: WorkspaceLeaf) => // WorkspaceLeaf 是 Obsidian Interface，这里只要捕获并透传就好了
+        (this.view = new ImageStoreView(leaf, this.settings)) // ImageStoreView 是自己实现的 View 类, 继承自 Obsidian 的 ItemView
+    );
+
+  }
+
+  setupPanelInterval() {
+    window.setInterval(async () => {
+      try {
+        // const activeFile = this.app.workspace.getActiveFile();
+        // this.view?.analyze(activeFile);
+      } catch (error) {
+        console.log(error);
+      }
+    }, 1000);
   }
 
   setupQueueInterval() {
@@ -220,6 +295,12 @@ export default class LocalImagesPlugin extends Plugin {
     }
   }
 
+  initLeaf() {
+    if (this.app.workspace.getLeavesOfType(VIEW_TYPE).length > 0) {
+      return;
+    }
+    this.app.workspace.getRightLeaf(true).setViewState({ type: VIEW_TYPE });
+  }
 
   onunload() {
   }
@@ -398,7 +479,6 @@ Here are some examples from pattern to image names (repeat in sequence), for ima
           await this.plugin.saveSettings();
         })
     );
-
 
 
   }

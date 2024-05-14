@@ -8,7 +8,7 @@ import {
   downloadImage,
   fileExtByContent,
   cleanFileName,
-  pathJoin
+  pathJoin, replaceAsync, replaceSync
 } from "./utils";
 import {
   FILENAME_TEMPLATE,
@@ -19,6 +19,78 @@ import { linkHashes } from "./linksHash";
 import { renderTemplate } from "./template";
 import { debuglog } from "util";
 
+async function ensureFolderExists(vault :Vault, folderPath: string) {
+  try {
+    await vault.createFolder(folderPath);
+  } catch (error) {
+    if (!error.message.contains("Folder already exists")) {
+      throw error;
+    }
+  }
+}
+
+export class RegexProcessor {
+  name: string;
+  processHandler: Function;
+  regex: RegExp;
+
+  constructor(regex: RegExp, processHandler: Function, name : string) {
+    this.regex = regex;
+    this.processHandler = processHandler;
+    this.name = name
+  }
+
+  public async DoAsync(content: string, modifier: Function): Promise<boolean> {
+    let ret = await replaceAsync(content, this.regex, this.processHandler);
+    if (ret !== content) {
+      modifier(ret)
+      return true;
+    }
+    return false;
+  }
+
+  public DoSync(content: string): string {
+    return replaceSync(content, this.regex, this.processHandler);
+  }
+
+}
+
+export const titleProc = new RegexProcessor(
+  /(?<ind>\d+)\.\s*(?<tag>#+)\s*(?<content>[^\n\r]*)\s*\n/g,
+  function(match: string, ind: string, tag: string, content: string) {
+    return `${tag} ${ind}. ${content}\n`;
+  }, "Title Proc"
+);
+
+export const quoteListProc = new RegexProcessor(
+  /^(?<front>[ \t]*-)[ \t]+>/gm,
+  function(match: string, front: string) {
+    console.log("quoteListProc", match)
+    return `> ${front}`;
+  }, "Quote List Proc"
+);
+
+export const redundantBlankProc = new RegexProcessor(
+  /(?<symbol>-|(?:\d+\.))[ \t]+(?<content>[^\n\r]*)\s*\n/g,
+  function(match: string, symbol: string, content: string) {
+    return `${symbol} ${content}\n`;
+  }, "Redundant Blank Proc"
+);
+
+export const headerBreathProc = new RegexProcessor(
+  /(?<raw>\S+)\s*[\n\r]+#/g,
+  function(match: string, raw: string) {
+    return `${raw}\n\n#`;
+  }, "Header Breath Proc"
+);
+
+export const quoteBreathProc = new RegexProcessor(
+  /^^>(?<raw>.*[\n\r])[\n\r]+>/gm,
+  function(match: string, raw: string) {
+    return `>${raw}>\n>`;
+  }, "Quote Breath Proc"
+);
+
 export function imageTagProcessor(app: App, mediaDir: string, namePattern: string, file: TFile) {
   const refFile = {
     basename: file.basename,
@@ -27,7 +99,7 @@ export function imageTagProcessor(app: App, mediaDir: string, namePattern: strin
     vault: file.vault,
     path: file.path,
     name: file.name,
-    parent: file.parent,
+    parent: file.parent
   };
 
   async function processImageTag(match: string, anchor: string, link: string) {
@@ -54,8 +126,9 @@ export function imageTagProcessor(app: App, mediaDir: string, namePattern: strin
           );
 
           if (needWrite && fileName) {
+            await ensureFolderExists(app.vault, mediaDir);
             await app.vault.createBinary(fileName, fileData);
-            console.log(`binary created ${fileName}`)
+            console.log(`binary created ${fileName}`);
           }
 
           if (fileName) {

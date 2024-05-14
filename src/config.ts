@@ -7,6 +7,8 @@ export const FILENAME_ATTEMPTS = 5;
 export const EXTERNAL_MEDIA_ASSET_LINK_PATTERN =
   /\!\[(?<anchor>.*?)\]\((?<link>.+?)\)/g;
 
+
+
 export const DIRTY_IMAGE_TAG = /\[\!\[\[(?<anchor>.*?)\]\]\((?<link>.+?)\)\]/g;
 
 export const ANY_URL_PATTERN =
@@ -42,3 +44,6 @@ export const DEFAULT_CONF: IConfig = {
   createFileDir: true,
   namePattern: "{{FileName}}_{{Anchor}}{{DATE:_YYYY-MM-DD}}"
 };
+
+export const VIEW_TYPE = "image-store-panel"
+export const ICON_NAME = "image_store"
